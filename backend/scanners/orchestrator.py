@@ -1,6 +1,5 @@
 import asyncio
 import time
-import dns.resolver
 
 from scanners.ssl_checker import check_ssl
 from scanners.email_security import check_email_security
@@ -8,6 +7,7 @@ from scanners.port_scanner import check_ports
 from scanners.headers_checker import check_headers
 from scanners.subdomain_finder import check_subdomains
 from scanners.darkweb_checker import check_darkweb
+from utils.dns_resolver import resolve_ns
 
 
 def _detect_hosting(ns_records: list) -> str:
@@ -47,14 +47,6 @@ def _detect_hosting(ns_records: list) -> str:
     return "Unknown Hosting"
 
 
-def _get_ns_records(domain: str) -> list:
-    try:
-        ans = dns.resolver.resolve(domain, "NS", lifetime=5)
-        return [str(r) for r in ans]
-    except Exception:
-        return []
-
-
 def _calculate_score(findings: list) -> dict:
     categories = {
         "email": {"max": 30, "earned": 0},
@@ -87,7 +79,7 @@ async def run_full_scan(domain: str, clerk_user_id: str = None) -> dict:
     start_time = time.time()
 
     # Detect hosting provider
-    ns_records = await asyncio.get_event_loop().run_in_executor(None, _get_ns_records, domain)
+    ns_records = await resolve_ns(domain)
     hosting_provider = _detect_hosting(ns_records)
 
     # Run all scanners concurrently

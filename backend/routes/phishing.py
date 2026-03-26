@@ -1,8 +1,10 @@
 import json
-from fastapi import APIRouter
+import os
+from fastapi import APIRouter, Header
 from pydantic import BaseModel
 from database import save_phishing_analysis, get_phishing_history, get_phishing_stats
 from ai.phishing_detector import analyze_message, analyze_conversation
+from analytics.posthog import build_analysis_properties, capture_event
 
 router = APIRouter(prefix="/phishing", tags=["phishing"])
 
@@ -22,8 +24,49 @@ class ConversationPhishingRequest(BaseModel):
 
 
 @router.post("/analyze")
-async def analyze_phishing(req: PhishingRequest):
+async def analyze_phishing(req: PhishingRequest, x_posthog_distinct_id: str | None = Header(default=None)):
+    distinct_id = x_posthog_distinct_id or req.clerk_user_id or "anonymous"
+    await capture_event(
+        distinct_id,
+        "llm_request",
+        {
+            "model": os.getenv("GROQ_MODEL", "llama-3.1-8b-instant"),
+            "input_length": len(req.message_text or ""),
+            "message_type": req.message_type,
+            "contains_link": build_analysis_properties(message_text=req.message_text, message_type=req.message_type)["contains_link"],
+            "contains_urgency": build_analysis_properties(message_text=req.message_text, message_type=req.message_type)["contains_urgency"],
+        },
+    )
     result = await analyze_message(req.message_text, req.message_type, req.sender_info)
+    analysis_props = build_analysis_properties(
+        message_text=req.message_text,
+        message_type=req.message_type,
+        verdict=result.get("verdict"),
+        score=result.get("risk_score", 0),
+    )
+    await capture_event(
+        distinct_id,
+        "llm_response",
+        {
+            "model": result.get("llm_model") or os.getenv("GROQ_MODEL", "llama-3.1-8b-instant"),
+            "input_length": result.get("llm_input_length", len(req.message_text or "")),
+            "output_length": result.get("llm_output_length", 0),
+            "verdict": result.get("verdict"),
+            "score": result.get("risk_score"),
+            "message_type": req.message_type,
+            "contains_link": analysis_props["contains_link"],
+            "contains_urgency": analysis_props["contains_urgency"],
+            "possible_false_negative": analysis_props["possible_false_negative"],
+        },
+    )
+    await capture_event(
+        distinct_id,
+        "analysis_result",
+        {
+            **analysis_props,
+            "source": "backend",
+        },
+    )
 
     await save_phishing_analysis({
         "clerk_user_id": req.clerk_user_id,

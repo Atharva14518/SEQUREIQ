@@ -1,23 +1,32 @@
-import { useState, useEffect } from 'react'
-import { useUser, UserButton } from '@clerk/clerk-react'
-import { Link } from 'react-router-dom'
-import ScoreGauge from '../components/ScoreGauge.jsx'
-import Chatbot from '../components/Chatbot.jsx'
-import HackerSimulation from '../components/HackerSimulation.jsx'
-import FindingCard from '../components/FindingCard.jsx'
-import PredictiveThreat from '../components/PredictiveThreat.jsx'
-import LivingSecurityScore from '../components/LivingSecurityScore.jsx'
-import { scanDomain, getUserProfile, getScanById } from '../api/secureiq.js'
+import { useEffect, useState } from "react"
+import { Link } from "react-router-dom"
+import { useUser, UserButton } from "@clerk/clerk-react"
+import ScoreGauge from "../components/ScoreGauge.jsx"
+import Chatbot from "../components/Chatbot.jsx"
+import HackerSimulation from "../components/HackerSimulation.jsx"
+import FindingCard from "../components/FindingCard.jsx"
+import PredictiveThreat from "../components/PredictiveThreat.jsx"
+import LivingSecurityScore from "../components/LivingSecurityScore.jsx"
+import DamageCalculator from "../components/DamageCalculator.jsx"
+import AttackChain from "../components/AttackChain.jsx"
+import { getScanById, getUserProfile, scanDomain } from "../api/secureiq.js"
+
+const SCORE_CATEGORIES = [
+  { key: "email", name: "EMAIL SECURITY", max: 30 },
+  { key: "ssl", name: "SSL CERTIFICATE", max: 25 },
+  { key: "headers", name: "HTTP HEADERS", max: 20 },
+  { key: "network", name: "NETWORK", max: 15 },
+  { key: "exposure", name: "EXPOSURE", max: 10 },
+]
 
 export default function Dashboard() {
   const { user } = useUser()
-  const [domain, setDomain] = useState('')
+  const [domain, setDomain] = useState("")
   const [isScanning, setIsScanning] = useState(false)
   const [scanResult, setScanResult] = useState(null)
   const [userProfile, setUserProfile] = useState(null)
   const [error, setError] = useState(null)
-  const [activeFilter, setActiveFilter] = useState('all')
-  const [displayRisk, setDisplayRisk] = useState(0)
+  const [activeFilter, setActiveFilter] = useState("all")
 
   useEffect(() => {
     if (user) {
@@ -31,17 +40,17 @@ export default function Dashboard() {
     setError(null)
     setScanResult(null)
     try {
-      const d = domain.replace(/https?:\/\/(www\.)?/, '').replace(/\/.*$/, '')
-      const result = await scanDomain(d, user?.id || 'anon')
+      const cleanedDomain = domain.replace(/https?:\/\/(www\.)?/, "").replace(/\/.*$/, "")
+      const result = await scanDomain(cleanedDomain, user?.id || "anon")
       setScanResult(result)
     } catch (e) {
-      setError('Scan failed. Check backend is running on port 8000.')
+      setError("Scan failed. Check backend is running on port 8000.")
+    } finally {
+      setIsScanning(false)
     }
-    setIsScanning(false)
   }
 
   const handleScoreUpdate = async () => {
-    // Re-fetch the scan so score + financial exposure update live.
     if (!scanResult?.scan_id) return
     try {
       const updated = await getScanById(scanResult.scan_id)
@@ -49,112 +58,206 @@ export default function Dashboard() {
     } catch (e) {}
   }
 
-  useEffect(() => {
-    if (!scanResult?.damage?.total_financial_risk) return
-    const target = scanResult.damage.total_financial_risk
-    const duration = 1200
-    let rafId = 0
-    let start = 0
-    const easeOutExpo = x => (x === 1 ? 1 : 1 - 2 ** (-10 * x))
-    const tick = ts => {
-      if (!start) start = ts
-      const p = Math.min((ts - start) / duration, 1)
-      setDisplayRisk(Math.floor(target * easeOutExpo(p)))
-      if (p < 1) rafId = requestAnimationFrame(tick)
-    }
-    rafId = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(rafId)
-  }, [scanResult])
-
-  // Note: the threat simulation UI is handled entirely by <HackerSimulation />
-
-  const filteredFindings = scanResult?.findings?.filter(f => {
-    if (activeFilter === 'all') return true
-    return f.status === activeFilter
+  const filteredFindings = scanResult?.findings?.filter((finding) => {
+    if (activeFilter === "all") return true
+    return finding.status === activeFilter
   }) || []
 
-  const scoreCategories = [
-    { key: 'email', label: 'EMAIL SECURITY', max: 30 },
-    { key: 'ssl', label: 'SSL CERTIFICATE', max: 25 },
-    { key: 'headers', label: 'HTTP HEADERS', max: 20 },
-    { key: 'network', label: 'NETWORK', max: 15 },
-    { key: 'exposure', label: 'EXPOSURE', max: 10 },
-  ]
+  const fallbackProfile = userProfile || {
+    website_type: "other",
+    monthly_visitors: "1000_to_10000",
+    has_payment_processing: false,
+  }
 
   return (
-    <div className="min-h-screen" style={{ background: '#181818' }}>
-      <nav className="h-14 border-b px-12 flex items-center" style={{ borderColor: '#35211A', background: '#181818' }}>
-        <div className="w-full flex items-center gap-6">
-          <Link to="/" className="label-sm">SECUREIQ</Link>
-          <div className="flex-1 max-w-2xl flex items-center gap-3">
+    <div
+      style={{
+        background: "#181818",
+        minHeight: "100vh",
+        paddingTop: "56px",
+      }}
+    >
+      <nav
+        style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          right: 0,
+          height: "56px",
+          borderBottom: "1px solid #35211A",
+          background: "rgba(24,24,24,0.96)",
+          backdropFilter: "blur(10px)",
+          zIndex: 100,
+          padding: "0 24px",
+          display: "flex",
+          alignItems: "center",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: "16px", width: "100%" }}>
+          <Link
+            to="/"
+            style={{
+              fontFamily: "'Clash Grotesk', sans-serif",
+              fontSize: "18px",
+              color: "#EBDCC4",
+              fontWeight: "700",
+            }}
+          >
+            SecureIQ
+          </Link>
+
+          <div style={{ flex: 1, maxWidth: "720px", display: "flex", alignItems: "center", gap: "12px" }}>
             <input
-              className="w-full bg-transparent py-2 outline-none"
-              style={{ borderBottom: '1px solid #66473B', color: '#EBDCC4' }}
-              placeholder="ENTER DOMAIN -"
               value={domain}
-              onChange={e => setDomain(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleScan()}
+              onChange={(e) => setDomain(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleScan()}
+              placeholder="Enter domain -"
+              style={{
+                width: "100%",
+                border: "none",
+                borderBottom: "1px solid #66473B",
+                padding: "10px 0",
+                color: "#EBDCC4",
+                outline: "none",
+                fontFamily: "'General Sans', sans-serif",
+                fontSize: "13px",
+              }}
             />
-            <button onClick={handleScan} className="btn-primary">{isScanning ? 'SCANNING' : 'SCAN -'}</button>
+            <button
+              onClick={handleScan}
+              style={{
+                background: "#DC9F85",
+                border: "none",
+                borderRadius: "4px",
+                padding: "10px 16px",
+                color: "#181818",
+                fontFamily: "'General Sans', sans-serif",
+                fontSize: "11px",
+                fontWeight: "700",
+                letterSpacing: "0.1em",
+                textTransform: "uppercase",
+                cursor: "pointer",
+              }}
+            >
+              {isScanning ? "Scanning" : "Scan -"}
+            </button>
           </div>
-          <div className="ml-auto flex items-center gap-3">
-            <span className="label-sm">- {user?.firstName || 'OPERATOR'}</span>
+
+          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
             <Link
               to="/phishing-detector"
-              className="btn-ghost"
               style={{
-                border: '1px solid #35211A',
-                padding: '6px 10px',
-                borderRadius: '4px',
-                color: '#B6A596',
-                textDecoration: 'none',
+                border: "1px solid #35211A",
+                borderRadius: "4px",
+                padding: "8px 12px",
+                color: "#B6A596",
                 fontFamily: "'General Sans', sans-serif",
-                fontSize: 11,
-                fontWeight: 600,
-                letterSpacing: '0.1em',
-                textTransform: 'uppercase',
+                fontSize: "11px",
+                fontWeight: "600",
+                letterSpacing: "0.1em",
+                textTransform: "uppercase",
               }}
             >
               Phishing Analyzer -
             </Link>
+            <span style={{ color: "#B6A596", fontSize: "11px", fontWeight: "600", letterSpacing: "0.1em", textTransform: "uppercase" }}>
+              {user?.firstName || "Operator"}
+            </span>
             <UserButton afterSignOutUrl="/" />
           </div>
         </div>
       </nav>
 
-      <div className="max-w-6xl mx-auto px-12 py-10">
-        <div className="flex items-center justify-between border-b pb-4" style={{ borderColor: '#35211A' }}>
-          <p className="label-sm">SCANNING FOR {(userProfile?.website_type || 'BUSINESS').toUpperCase()} INFRASTRUCTURE</p>
-          <p className="label-sm"><span style={{ color: '#DC9F85' }}>{scanResult?.score ?? '--'}</span> <span style={{ color: '#35211A' }}>- SCORE</span></p>
+      <main style={{ maxWidth: "1200px", margin: "0 auto", padding: "32px 24px 96px" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "1px solid #35211A", paddingBottom: "16px", gap: "16px" }}>
+          <div>
+            <p style={{ color: "#DC9F85", fontSize: "11px", fontWeight: "600", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: "6px" }}>
+              - Domain Intelligence
+            </p>
+            <p style={{ color: "#B6A596", fontSize: "13px", lineHeight: "1.6" }}>
+              Scanning for {(userProfile?.website_type || "business").toUpperCase()} infrastructure and exposure paths.
+            </p>
+          </div>
+          <div style={{ textAlign: "right" }}>
+            <p style={{ color: "#B6A596", fontSize: "11px", fontWeight: "600", letterSpacing: "0.1em", textTransform: "uppercase" }}>Security Score</p>
+            <p style={{ color: "#DC9F85", fontSize: "28px", fontWeight: "700" }}>{scanResult?.score ?? "--"}</p>
+          </div>
         </div>
 
-        {error && <p className="label-sm mt-4" style={{ color: '#DC9F85' }}>{error}</p>}
+        {error && (
+          <p style={{ color: "#DC9F85", fontSize: "12px", fontWeight: "600", marginTop: "16px" }}>{error}</p>
+        )}
+
+        {!scanResult && !isScanning && (
+          <div className="card" style={{ marginTop: "32px" }}>
+            <h2 style={{ fontSize: "clamp(28px, 4vw, 46px)", marginBottom: "12px", color: "#EBDCC4" }}>Ready To Scan</h2>
+            <p style={{ color: "#B6A596", lineHeight: "1.7" }}>Enter a domain above to start your security scan.</p>
+          </div>
+        )}
 
         {scanResult && (
-          <div className="mt-10 space-y-12">
-            <section className="grid grid-cols-1 md:grid-cols-2 gap-10">
-              <div className="pr-6 md:border-r" style={{ borderColor: '#35211A' }}>
+          <div style={{ marginTop: "32px", display: "grid", gap: "32px" }}>
+            <section style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: "24px" }} className="dashboard-two-col">
+              <div className="card">
                 <ScoreGauge score={scanResult.score} />
-                <div className="mt-8 space-y-2" style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
-                  {scoreCategories.map(cat => {
-                    const earned = scanResult.score_breakdown?.[cat.key]?.earned || 0
-                    return <p key={cat.key} className="label-sm">{`${cat.label} -------------- ${String(earned).padStart(2, '0')} / ${cat.max}`}</p>
+                <div style={{ marginTop: "24px" }}>
+                  {SCORE_CATEGORIES.map((category) => {
+                    const earned = scanResult.score_breakdown?.[category.key]?.earned || 0
+                    return (
+                      <div
+                        key={category.key}
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          padding: "10px 0",
+                          borderBottom: "1px solid #35211A",
+                        }}
+                      >
+                        <span
+                          style={{
+                            fontFamily: "'General Sans', sans-serif",
+                            fontSize: "11px",
+                            fontWeight: "500",
+                            letterSpacing: "0.08em",
+                            textTransform: "uppercase",
+                            color: "#B6A596",
+                          }}
+                        >
+                          {category.name}
+                        </span>
+                        <span
+                          style={{
+                            fontFamily: "monospace",
+                            fontSize: "13px",
+                            color: "#DC9F85",
+                            fontWeight: "600",
+                          }}
+                        >
+                          {earned}/{category.max}
+                        </span>
+                      </div>
+                    )
                   })}
                 </div>
               </div>
-              <div>
-                {scoreCategories.map(cat => {
-                  const earned = scanResult.score_breakdown?.[cat.key]?.earned || 0
-                  const pct = Math.round((earned / cat.max) * 100)
-                  const color = earned < cat.max * 0.4 ? '#DC9F85' : earned < cat.max * 0.7 ? '#B6A596' : '#66473B'
+
+              <div className="card">
+                <p style={{ color: "#DC9F85", fontSize: "11px", fontWeight: "600", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: "16px" }}>
+                  - Score Breakdown
+                </p>
+                {SCORE_CATEGORIES.map((category) => {
+                  const earned = scanResult.score_breakdown?.[category.key]?.earned || 0
+                  const percent = Math.round((earned / category.max) * 100)
+                  const barColor = earned < category.max * 0.4 ? "#DC9F85" : earned < category.max * 0.7 ? "#B6A596" : "#66473B"
                   return (
-                    <div key={cat.key} className="py-3 border-b" style={{ borderColor: '#35211A' }}>
-                      <div className="flex justify-between">
-                        <p className="label-sm">{cat.label}</p>
-                        <p className="label-sm">{earned}/{cat.max}</p>
+                    <div key={category.key} style={{ padding: "12px 0", borderBottom: "1px solid #35211A" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <p style={{ color: "#B6A596", fontSize: "11px", fontWeight: "600", letterSpacing: "0.08em", textTransform: "uppercase" }}>{category.name}</p>
+                        <p style={{ color: "#DC9F85", fontFamily: "monospace", fontSize: "13px", fontWeight: "600" }}>{earned}/{category.max}</p>
                       </div>
-                      <div className="h-px mt-2" style={{ background: '#35211A' }}>
-                        <div className="h-px" style={{ width: `${pct}%`, background: color }} />
+                      <div style={{ height: "2px", background: "#35211A", marginTop: "10px" }}>
+                        <div style={{ width: `${percent}%`, height: "2px", background: barColor }} />
                       </div>
                     </div>
                   )
@@ -162,52 +265,61 @@ export default function Dashboard() {
               </div>
             </section>
 
-            <PredictiveThreat scanResult={scanResult} userProfile={userProfile} />
+            <PredictiveThreat scanResult={scanResult} userProfile={fallbackProfile} />
 
             <LivingSecurityScore scanResult={scanResult} />
 
-            <section className="border-t pt-8" style={{ borderColor: '#35211A' }}>
-              <p className="label-accent mb-6">- FINANCIAL EXPOSURE ANALYSIS</p>
-              <p className="display-lg" style={{ color: '#DC9F85' }}>
-                ₹{displayRisk.toLocaleString('en-IN')}
-              </p>
-              <p className="label-sm mb-6">TOTAL RISK EXPOSURE</p>
-              <div className="border-b pb-2 mb-2 grid grid-cols-3" style={{ borderColor: '#35211A' }}>
-                <p className="label-sm" style={{ color: '#35211A' }}>VULNERABILITY</p>
-                <p className="label-sm" style={{ color: '#35211A' }}>EXPOSURE</p>
-                <p className="label-sm" style={{ color: '#35211A' }}>STATUS</p>
-              </div>
-              {(scanResult.damage?.finding_costs || []).map((fc, idx) => (
-                <div key={`${fc.check || 'item'}-${idx}`} className="grid grid-cols-3 py-3 border-b" style={{ borderColor: '#35211A' }}>
-                  <p className="label-sm">{fc.label || fc.check}</p>
-                  <p className="label-sm" style={{ color: '#DC9F85' }}>{fc.formatted_cost}</p>
-                  <p className={`status-dot ${fc.status === 'critical' ? 'critical' : 'warning'} label-sm`}>ACTIVE</p>
-                </div>
-              ))}
-            </section>
+            <DamageCalculator
+              scanResult={scanResult}
+              userProfile={userProfile || {
+                website_type: "other",
+                monthly_visitors: "1000_to_10000",
+                has_payment_processing: false,
+              }}
+            />
 
-            <HackerSimulation scanResult={scanResult} userProfile={userProfile} />
+            <AttackChain chain={scanResult.attack_chain} />
+
+            <HackerSimulation scanResult={scanResult} userProfile={fallbackProfile} />
 
             <section>
-              <div className="flex items-center justify-between">
-                <p className="label-accent">- SECURITY FINDINGS</p>
-                <div className="label-sm flex gap-4">
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "16px", gap: "16px", flexWrap: "wrap" }}>
+                <p style={{ color: "#DC9F85", fontSize: "11px", fontWeight: "600", letterSpacing: "0.12em", textTransform: "uppercase" }}>
+                  - Security Findings
+                </p>
+                <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
                   {[
-                    ['all', `ALL ${scanResult.findings?.length || 0}`],
-                    ['critical', `CRITICAL ${scanResult.critical_count || 0}`],
-                    ['warning', `WARNING ${scanResult.warning_count || 0}`],
-                    ['pass', `PASSED ${scanResult.pass_count || 0}`],
+                    ["all", `All ${scanResult.findings?.length || 0}`],
+                    ["critical", `Critical ${scanResult.critical_count || 0}`],
+                    ["warning", `Warning ${scanResult.warning_count || 0}`],
+                    ["pass", `Passed ${scanResult.pass_count || 0}`],
                   ].map(([key, label]) => (
-                    <button key={key} onClick={() => setActiveFilter(key)} className="label-sm" style={{ textDecoration: activeFilter === key ? 'underline' : 'none', textDecorationColor: '#DC9F85' }}>{label} -</button>
+                    <button
+                      key={key}
+                      onClick={() => setActiveFilter(key)}
+                      style={{
+                        background: "transparent",
+                        border: "none",
+                        color: activeFilter === key ? "#DC9F85" : "#B6A596",
+                        fontFamily: "'General Sans', sans-serif",
+                        fontSize: "11px",
+                        fontWeight: "600",
+                        letterSpacing: "0.08em",
+                        textTransform: "uppercase",
+                        cursor: "pointer",
+                      }}
+                    >
+                      {label}
+                    </button>
                   ))}
                 </div>
               </div>
-              <div className="divider my-4" />
-              <div className="space-y-3">
-                {filteredFindings.map((f, idx) => (
+
+              <div style={{ display: "grid", gap: "12px" }}>
+                {filteredFindings.map((finding, index) => (
                   <FindingCard
-                    key={`${f.check}-${idx}`}
-                    finding={f}
+                    key={`${finding.check}-${index}`}
+                    finding={finding}
                     scanId={scanResult.scan_id}
                     domain={scanResult.domain}
                     scanResult={scanResult}
@@ -216,51 +328,9 @@ export default function Dashboard() {
                 ))}
               </div>
             </section>
-
-            {scanResult.attack_chain?.has_chain && (
-              <section>
-                <div className="flex justify-between mb-4">
-                  <p className="label-accent">- ATTACK CHAIN DETECTED</p>
-                  <p className="label-sm" style={{ color: '#DC9F85' }}>CHAIN SEVERITY - CRITICAL</p>
-                </div>
-                <h3 className="display-md headline-depth" data-text={scanResult.attack_chain.title || 'MULTI-STEP EXPLOIT CHAIN'}>
-                  <span>{scanResult.attack_chain.title || 'MULTI-STEP EXPLOIT CHAIN'}</span>
-                </h3>
-              </section>
-            )}
-
-            <section>
-              <p className="label-accent mb-4">- SECURITY CERTIFICATE</p>
-              {(scanResult.score || 0) < 70 ? (
-                <>
-                  <p className="label-sm" style={{ color: '#66473B' }}>LOCKED - SCORE REQUIREMENT: 70/100</p>
-                  <p className="label-sm mt-2">CURRENT: {scanResult.score} --------------- REQUIRED: 70</p>
-                </>
-              ) : (
-                <div className="card" style={{ borderColor: '#DC9F85' }}>
-                  <p className="label-sm text-center">CERTIFICATE OF SECURITY COMPLIANCE</p>
-                  <p className="display-md text-center mt-3" style={{ color: '#DC9F85' }}>{scanResult.domain}</p>
-                  <p className="display-lg text-center">{scanResult.score}</p>
-                  <div className="grid grid-cols-3 mt-6 mb-6">
-                    <div><p className="label-sm" style={{ color: '#35211A' }}>CERT_ID</p><p className="label-sm">{scanResult.scan_id}</p></div>
-                    <div><p className="label-sm" style={{ color: '#35211A' }}>VALID_UNTIL</p><p className="label-sm">12 MONTHS</p></div>
-                    <div><p className="label-sm" style={{ color: '#35211A' }}>VERIFIED_BY</p><p className="label-sm">SECUREIQ</p></div>
-                  </div>
-                  <div className="divider mb-4" />
-                  <Link to={`/report/${scanResult.scan_id}`} className="btn-primary block text-center">DOWNLOAD CERTIFICATE -</Link>
-                </div>
-              )}
-            </section>
           </div>
         )}
-
-        {!scanResult && !isScanning && (
-          <div className="mt-12 card">
-            <h2 className="display-md headline-depth" data-text="READY TO SCAN"><span>READY TO SCAN</span></h2>
-            <p className="body-copy mt-4">Enter a domain above to start your security scan.</p>
-          </div>
-        )}
-      </div>
+      </main>
 
       <Chatbot
         scanContext={
@@ -274,6 +344,14 @@ export default function Dashboard() {
             : {}
         }
       />
+
+      <style>{`
+        @media (max-width: 900px) {
+          .dashboard-two-col {
+            grid-template-columns: 1fr !important;
+          }
+        }
+      `}</style>
     </div>
   )
 }

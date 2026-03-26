@@ -1,14 +1,13 @@
 import json
 import os
-import asyncio
 
-import dns.resolver
 from fastapi import APIRouter
 from pydantic import BaseModel
 from groq import Groq
 
 from database import get_scan_by_id, update_scan_score
 from scanners.email_security import check_email_security
+from utils.dns_resolver import resolve_txt
 
 
 router = APIRouter(tags=["autofix"])
@@ -67,18 +66,7 @@ def _first_json_object_or_array(text: str):
 
 
 async def _dns_txt(name: str) -> list[str]:
-    loop = asyncio.get_event_loop()
-
-    def _query():
-        answers = dns.resolver.resolve(name, "TXT", lifetime=5)
-        out = []
-        for rdata in answers:
-            # rdata.to_text() usually wraps each chunk in quotes.
-            txt = rdata.to_text().strip('"')
-            out.append(txt)
-        return out
-
-    return await loop.run_in_executor(None, _query)
+    return await resolve_txt(name)
 
 
 def _normalize_expected(expected: str) -> str:
@@ -252,4 +240,3 @@ async def verify_auto_fix_applied(req: VerifyAutoFixRequest):
         "points_gained": points_gained,
         "message": "DNS auto-fix verified and score updated.",
     }
-

@@ -259,3 +259,85 @@ body {
   background: #35211a;
   border-radius: 2px;
 }
+
+/* Force all text visible globally */
+body, body * {
+  -webkit-font-smoothing: antialiased;
+}
+
+/* All paragraph text */
+p {
+  color: #B6A596;
+}
+
+/* All span text that has no explicit color */
+span:not([style*="color"]) {
+  color: #EBDCC4;
+}
+
+/* All label elements */
+label {
+  color: #B6A596;
+  font-family: 'General Sans', sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* All input placeholders */
+input::placeholder,
+textarea::placeholder {
+  color: #66473B !important;
+  opacity: 1;
+}
+
+/* All input text */
+input,
+textarea,
+select {
+  color: #EBDCC4 !important;
+  background: transparent;
+}
+
+/* Select dropdown options */
+select option {
+  background: #1E1E1E;
+  color: #EBDCC4;
+}
+
+/* Table text */
+td, th {
+  color: #EBDCC4;
+}
+
+/* Any element with class containing "text" */
+[class*="text-gray"],
+[class*="text-slate"],
+[class*="text-zinc"] {
+  color: #B6A596 !important;
+}
+
+/* Headings always white */
+h1, h2, h3, h4, h5, h6 {
+  color: #EBDCC4;
+  font-family: 'Clash Grotesk', sans-serif;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: -0.02em;
+}
+
+/* Links */
+a {
+  color: #DC9F85;
+  text-decoration: none;
+}
+a:hover {
+  color: #EBDCC4;
+}
+
+/* Fix Tailwind overriding colors */
+.text-white { color: #EBDCC4 !important; }
+.text-gray-400 { color: #B6A596 !important; }
+.text-gray-500 { color: #8B7B6E !important; }
+.text-gray-600 { color: #66473B !important; }

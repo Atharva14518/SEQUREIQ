@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react"
 import { useUser } from "@clerk/clerk-react"
 import { sendChatMessage } from "../api/secureiq.js"
+import { useVoiceRecorder } from "../hooks/useVoiceRecorder"
 
 export default function Chatbot({ scanContext }) {
   const { user } = useUser()
@@ -17,6 +18,13 @@ export default function Chatbot({ scanContext }) {
   const [isLoading, setIsLoading] = useState(false)
   const messagesEndRef = useRef(null)
   const inputRef = useRef(null)
+  const { isRecording, isTranscribing, error: voiceError, toggleRecording } = useVoiceRecorder({
+    mode: "transcribe",
+    onTranscript: (text) => {
+      setInputValue(text)
+      setTimeout(() => handleSend(text), 300)
+    },
+  })
 
   // Auto scroll to bottom whenever messages change
   useEffect(() => {
@@ -355,67 +363,92 @@ export default function Chatbot({ scanContext }) {
             background: "#181818",
             padding: "12px 16px",
             display: "flex",
-            alignItems: "center",
+            flexDirection: "column",
             gap: "8px",
             flexShrink: 0,
           }}>
-            <input
-              ref={inputRef}
-              type="text"
-              value={inputValue}
-              onChange={e => setInputValue(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="ASK ANYTHING —"
-              disabled={isLoading}
-              style={{
-                flex: 1,
-                minWidth: 0,
-                background: "transparent",
-                border: "none",
-                borderBottom: "1px solid #66473B",
-                outline: "none",
-                color: "#EBDCC4",
-                fontFamily: "'General Sans', sans-serif",
-                fontSize: "13px",
-                fontWeight: "400",
-                padding: "8px 0",
-                letterSpacing: "0.02em",
-                caretColor: "#DC9F85",
-              }}
-              onFocus={e => {
-                e.target.style.borderBottomColor = "#DC9F85"
-              }}
-              onBlur={e => {
-                e.target.style.borderBottomColor = "#66473B"
-              }}
-            />
-            <button
-              type="button"
-              onClick={() => handleSend()}
-              disabled={isLoading || !inputValue.trim()}
-              style={{
-                background: isLoading || !inputValue.trim()
-                  ? "transparent" : "#DC9F85",
-                border: isLoading || !inputValue.trim()
-                  ? "1px solid #35211A" : "none",
-                borderRadius: "4px",
-                padding: "8px 16px",
-                color: isLoading || !inputValue.trim()
-                  ? "#35211A" : "#181818",
-                fontFamily: "'General Sans', sans-serif",
-                fontSize: "11px",
-                fontWeight: "700",
-                letterSpacing: "0.1em",
-                textTransform: "uppercase",
-                cursor: isLoading || !inputValue.trim()
-                  ? "not-allowed" : "pointer",
-                transition: "all 150ms ease",
-                flexShrink: 0,
-                whiteSpace: "nowrap",
-              }}
-            >
-              {isLoading ? "..." : "SEND —"}
-            </button>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", width: "100%" }}>
+              <input
+                ref={inputRef}
+                type="text"
+                value={inputValue}
+                onChange={e => setInputValue(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="ASK ANYTHING —"
+                disabled={isLoading}
+                style={{
+                  flex: 1,
+                  minWidth: 0,
+                  background: "transparent",
+                  border: "none",
+                  borderBottom: "1px solid #66473B",
+                  outline: "none",
+                  color: "#EBDCC4",
+                  fontFamily: "'General Sans', sans-serif",
+                  fontSize: "13px",
+                  fontWeight: "400",
+                  padding: "8px 0",
+                  letterSpacing: "0.02em",
+                  caretColor: "#DC9F85",
+                }}
+                onFocus={e => {
+                  e.target.style.borderBottomColor = "#DC9F85"
+                }}
+                onBlur={e => {
+                  e.target.style.borderBottomColor = "#66473B"
+                }}
+              />
+              <button
+                onClick={toggleRecording}
+                title={isRecording ? "Stop recording" : "Voice input"}
+                style={{
+                  background: isRecording ? "rgba(220,159,133,0.2)" : "transparent",
+                  border: `1px solid ${isRecording ? "#DC9F85" : "#35211A"}`,
+                  borderRadius: "4px",
+                  padding: "8px 10px",
+                  color: isRecording ? "#DC9F85" : "#66473B",
+                  cursor: "pointer",
+                  fontSize: "14px",
+                  transition: "all 150ms",
+                  flexShrink: 0,
+                  animation: isRecording ? "blink 1s ease infinite" : "none",
+                }}
+              >
+                {isTranscribing ? "..." : isRecording ? "⏹" : "🎤"}
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSend()}
+                disabled={isLoading || !inputValue.trim()}
+                style={{
+                  background: isLoading || !inputValue.trim()
+                    ? "transparent" : "#DC9F85",
+                  border: isLoading || !inputValue.trim()
+                    ? "1px solid #35211A" : "none",
+                  borderRadius: "4px",
+                  padding: "8px 16px",
+                  color: isLoading || !inputValue.trim()
+                    ? "#35211A" : "#181818",
+                  fontFamily: "'General Sans', sans-serif",
+                  fontSize: "11px",
+                  fontWeight: "700",
+                  letterSpacing: "0.1em",
+                  textTransform: "uppercase",
+                  cursor: isLoading || !inputValue.trim()
+                    ? "not-allowed" : "pointer",
+                  transition: "all 150ms ease",
+                  flexShrink: 0,
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {isLoading ? "..." : "SEND —"}
+              </button>
+            </div>
+            {voiceError && (
+              <p style={{ color: "#DC9F85", fontSize: "11px", margin: 0 }}>
+                {voiceError}
+              </p>
+            )}
           </div>
         </div>
       )}
@@ -425,6 +458,10 @@ export default function Chatbot({ scanContext }) {
         @keyframes typing-dot {
           0%, 60%, 100% { opacity: 0.2; transform: scale(1); }
           30% { opacity: 1; transform: scale(1.3); }
+        }
+        @keyframes blink {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.45; }
         }
       `}</style>
     </>

@@ -1,8 +1,18 @@
 import axios from 'axios'
+import posthog from '../lib/posthog.js'
 
 const API = axios.create({
   baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8000',
   timeout: 120000,
+})
+
+API.interceptors.request.use((config) => {
+  const distinctId = posthog?.get_distinct_id?.()
+  if (distinctId) {
+    config.headers = config.headers || {}
+    config.headers['x-posthog-distinct-id'] = distinctId
+  }
+  return config
 })
 
 // ─── Scan ─────────────────────────────────────────────────────────────────────
@@ -64,6 +74,29 @@ export const analyzeConversation = (data) =>
 // ─── Predictive Threat Scoring ───────────────────────────────────────────────
 export const predictThreat = (data) =>
   API.post('/api/predict', data).then(r => r.data)
+
+export const transcribeAudio = async (audioBlob, context) => {
+  const formData = new FormData()
+  formData.append('audio', audioBlob, 'recording.webm')
+  formData.append('language', 'en')
+  formData.append('context', context || 'security')
+  return API.post('/api/whisper/transcribe', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  })
+}
+
+export const analyzeVoicePhishing = async (audioBlob, payload = {}) => {
+  const formData = new FormData()
+  formData.append('audio', audioBlob, 'recording.webm')
+  formData.append('language', payload.language || 'en')
+  formData.append('context', payload.context || 'security')
+  formData.append('message_type', payload.message_type || 'voice')
+  formData.append('sender_info', payload.sender_info || 'Unknown')
+  formData.append('clerk_user_id', payload.clerk_user_id || 'anonymous')
+  return API.post('/api/whisper/analyze-voice', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  }).then(r => r.data)
+}
 
 export const getPhishingHistory = (userId) =>
   API.get(`/api/phishing/history/${userId}`).then(r => r.data)

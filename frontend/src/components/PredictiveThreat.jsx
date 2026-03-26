@@ -16,14 +16,15 @@ export default function PredictiveThreat({ scanResult, userProfile }) {
     let cancelled = false
 
     const run = async () => {
-      if (!scanResult?.scan_id) return
+      if (!scanResult) return
       setLoading(true)
       setError(null)
       try {
         const res = await predictThreat({
-          scan_id: scanResult.scan_id,
-          horizon_days: 30,
-          clerk_user_id: userProfile?.clerk_user_id || 'anonymous',
+          domain: scanResult.domain,
+          business_type: userProfile?.website_type || 'other',
+          findings: scanResult.findings || [],
+          score: scanResult.score || 50,
         })
         if (!cancelled) setPrediction(res?.error ? null : res)
       } catch (e) {
@@ -37,7 +38,7 @@ export default function PredictiveThreat({ scanResult, userProfile }) {
     return () => {
       cancelled = true
     }
-  }, [scanResult?.scan_id, userProfile?.clerk_user_id])
+  }, [scanResult, userProfile?.website_type])
 
   if (!scanResult) return null
 
@@ -61,16 +62,14 @@ export default function PredictiveThreat({ scanResult, userProfile }) {
 
       {prediction && (
         <div className="space-y-6">
-          <div className="card" style={{ borderColor: prediction.predicted_threat_score >= 75 ? '#DC9F85' : '#35211A' }}>
+          <div className="card" style={{ borderColor: prediction.threat_probability >= 75 ? '#DC9F85' : '#35211A' }}>
             <div className="flex items-start justify-between gap-6">
               <div>
                 <p className="label-sm" style={{ color: '#35211A' }}>PREDICTED THREAT SCORE</p>
-                <p className="display-lg" style={{ color: threatColor(prediction.predicted_threat_score) }}>
-                  {prediction.predicted_threat_score}
+                <p className="display-lg" style={{ color: threatColor(prediction.threat_probability) }}>
+                  {prediction.threat_probability}
                 </p>
-                <p className="label-sm" style={{ color: '#B6A596' }}>
-                  Confidence: {prediction.confidence} ({prediction.confidence_percent}%)
-                </p>
+                <p className="label-sm" style={{ color: '#B6A596' }}>Primary threat: {prediction.primary_threat}</p>
               </div>
               <div style={{ flex: 1, minWidth: 180 }}>
                 <p className="label-sm mb-2">TRAJECTORY BAR</p>
@@ -78,45 +77,43 @@ export default function PredictiveThreat({ scanResult, userProfile }) {
                   <div
                     className="h-px"
                     style={{
-                      width: `${Math.max(0, Math.min(100, prediction.predicted_threat_score))}%`,
-                      background: threatColor(prediction.predicted_threat_score),
+                      width: `${Math.max(0, Math.min(100, prediction.threat_probability))}%`,
+                      background: threatColor(prediction.threat_probability),
                       height: 2,
                     }}
                   />
                 </div>
-                <p className="label-sm text-right mt-2" style={{ color: '#35211A' }}>
-                  Predicted security score: {prediction.predicted_security_score}/100
-                </p>
+                <p className="label-sm text-right mt-2" style={{ color: '#35211A' }}>Likely attack window: {prediction.days_until_likely_attack || 30} days</p>
               </div>
             </div>
           </div>
 
           <div className="card">
             <p className="label-accent mb-3">KEY DRIVERS</p>
-            {prediction.key_drivers?.length ? (
+            <p className="body-copy mb-4">{prediction.threat_description}</p>
+            {prediction.active_campaigns?.length ? (
               <div className="space-y-2">
-                {prediction.key_drivers.map((d, idx) => (
+                {prediction.active_campaigns.map((campaign, idx) => (
                   <div
-                    key={`${d.check}-${idx}`}
+                    key={`${campaign.campaign_name}-${idx}`}
                     className="p-3 rounded-xl"
                     style={{ background: 'var(--bg-card-2)', border: '1px solid var(--border)' }}
                   >
                     <div className="flex justify-between gap-4">
                       <p className="label-sm" style={{ color: '#EBDCC4' }}>
-                        {d.check || 'Unknown'}
+                        {campaign.campaign_name || 'Unknown'}
                       </p>
-                      <p className="label-sm" style={{ color: d.status === 'critical' ? '#DC9F85' : '#B6A596' }}>
-                        {String(d.status || '').toUpperCase()}
+                      <p className="label-sm" style={{ color: '#DC9F85' }}>
+                        {campaign.businesses_hit || 0} HIT
                       </p>
                     </div>
-                    <p className="label-sm mt-1" style={{ color: '#66473B' }}>
-                      Impact weight: {d.impact ?? 0}
-                    </p>
+                    <p className="label-sm mt-1" style={{ color: '#B6A596' }}>{campaign.method}</p>
+                    <p className="label-sm mt-1" style={{ color: '#66473B' }}>{campaign.relevance}</p>
                   </div>
                 ))}
               </div>
             ) : (
-              <p className="body-copy">No actionable drivers detected.</p>
+              <p className="body-copy">No active campaigns returned. Priorities: {(prediction.protection_priority || []).join(', ')}</p>
             )}
           </div>
         </div>
@@ -124,4 +121,3 @@ export default function PredictiveThreat({ scanResult, userProfile }) {
     </section>
   )
 }
-

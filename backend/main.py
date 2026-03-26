@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from database import init_db
-from routes import scan, chat, report, certificate, phishing, onboarding, autofix, predict
+from routes import scan, chat, report, certificate, phishing, onboarding, autofix, predict, whisper
 
 
 async def check_groq():
@@ -62,6 +62,7 @@ app.include_router(phishing.router, prefix="/api")
 app.include_router(onboarding.router, prefix="/api")
 app.include_router(autofix.router, prefix="/api")
 app.include_router(predict.router, prefix="/api")
+app.include_router(whisper.router, prefix="/api")
 
 
 @app.get("/")
