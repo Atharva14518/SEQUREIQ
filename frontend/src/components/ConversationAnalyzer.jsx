@@ -33,7 +33,7 @@ export default function ConversationAnalyzer({ analysis }) {
           {riskScore} <span className="label-sm">/ 100</span>
         </p>
         <p className="display-md">VERDICT: {verdict}</p>
-        <p className="label-sm mt-2" style={{ color: '#35211A' }}>
+        <p className="label-sm mt-2" style={{ color: 'var(--text-2)' }}>
           CONFIDENCE: {analysis.confidence || 'Medium'}
         </p>
       </div>
@@ -55,7 +55,7 @@ export default function ConversationAnalyzer({ analysis }) {
           </div>
           <div className="p-3 rounded-xl" style={{ background: 'var(--bg-card-2)', border: '1px solid var(--border)' }}>
             <p className="label-sm" style={{ color: 'var(--text-3)' }}>CHANNEL SHIFT</p>
-            <p className="display-md" style={{ color: conv.channel_shift_turns?.length ? '#DC9F85' : '#66473B' }}>
+            <p className="display-md" style={{ color: conv.channel_shift_turns?.length ? '#DC9F85' : 'var(--text-2)' }}>
               {conv.channel_shift_turns?.length ? `${conv.channel_shift_turns.length} turns` : 'No'}
             </p>
           </div>
@@ -85,7 +85,7 @@ export default function ConversationAnalyzer({ analysis }) {
                       <span
                         key={`${n.id}-${l}`}
                         className="label-sm"
-                        style={{ border: '1px solid var(--border)', borderRadius: 2, padding: '4px 8px', color: '#66473B', background: 'rgba(102,71,59,0.10)' }}
+                        style={{ border: '1px solid var(--border)', borderRadius: 2, padding: '4px 8px', color: 'var(--text-2)', background: 'rgba(102,71,59,0.10)' }}
                       >
                         {l}
                       </span>

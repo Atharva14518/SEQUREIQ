@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Link } from "react-router-dom"
 import { useUser, UserButton } from "@clerk/clerk-react"
+import { motion, AnimatePresence } from "framer-motion"
 import ScoreGauge from "../components/ScoreGauge.jsx"
 import Chatbot from "../components/Chatbot.jsx"
 import HackerSimulation from "../components/HackerSimulation.jsx"
@@ -27,6 +28,8 @@ export default function Dashboard() {
   const [userProfile, setUserProfile] = useState(null)
   const [error, setError] = useState(null)
   const [activeFilter, setActiveFilter] = useState("all")
+  const [scoreFlash, setScoreFlash] = useState(false)
+  const prevScore = useRef(null)
 
   useEffect(() => {
     if (user) {
@@ -39,10 +42,12 @@ export default function Dashboard() {
     setIsScanning(true)
     setError(null)
     setScanResult(null)
+    prevScore.current = null
     try {
       const cleanedDomain = domain.replace(/https?:\/\/(www\.)?/, "").replace(/\/.*$/, "")
       const result = await scanDomain(cleanedDomain, user?.id || "anon")
       setScanResult(result)
+      prevScore.current = result.score
     } catch (e) {
       setError("Scan failed. Check backend is running on port 8000.")
     } finally {
@@ -50,11 +55,17 @@ export default function Dashboard() {
     }
   }
 
-  const handleScoreUpdate = async () => {
+  const handleScoreUpdate = async (newScore) => {
     if (!scanResult?.scan_id) return
     try {
       const updated = await getScanById(scanResult.scan_id)
       setScanResult(updated)
+      // Trigger flash animation if score improved
+      if (updated.score !== prevScore.current) {
+        setScoreFlash(true)
+        prevScore.current = updated.score
+        setTimeout(() => setScoreFlash(false), 2000)
+      }
     } catch (e) {}
   }
 
@@ -180,7 +191,14 @@ export default function Dashboard() {
           </div>
           <div style={{ textAlign: "right" }}>
             <p style={{ color: "#B6A596", fontSize: "11px", fontWeight: "600", letterSpacing: "0.1em", textTransform: "uppercase" }}>Security Score</p>
-            <p style={{ color: "#DC9F85", fontSize: "28px", fontWeight: "700" }}>{scanResult?.score ?? "--"}</p>
+            <motion.p
+              key={scanResult?.score}
+              animate={scoreFlash ? { scale: [1, 1.18, 1], color: ["#DC9F85", "#4ade80", "#DC9F85"] } : {}}
+              transition={{ duration: 0.6 }}
+              style={{ color: "#DC9F85", fontSize: "28px", fontWeight: "700" }}
+            >
+              {scanResult?.score ?? "--"}
+            </motion.p>
           </div>
         </div>
 
@@ -197,6 +215,34 @@ export default function Dashboard() {
 
         {scanResult && (
           <div style={{ marginTop: "32px", display: "grid", gap: "32px" }}>
+
+            {/* ===== PLAIN-ENGLISH SUMMARY CARD ===== */}
+            {scanResult.summary && (
+              <motion.div
+                initial={{ opacity: 0, y: -8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.4 }}
+                style={{
+                  background: "rgba(220,159,133,0.06)",
+                  border: "1px solid rgba(220,159,133,0.2)",
+                  borderRadius: "16px",
+                  padding: "20px 24px",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "flex-start", gap: "12px" }}>
+                  <span style={{ fontSize: "24px", lineHeight: 1 }}>🛡️</span>
+                  <div>
+                    <p style={{ color: "#DC9F85", fontSize: "11px", fontWeight: "700", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: "8px" }}>
+                      What This Means For Your Business
+                    </p>
+                    <p style={{ color: "#EBDCC4", fontSize: "14px", lineHeight: "1.7", margin: 0 }}>
+                      {scanResult.summary}
+                    </p>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+
             <section style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: "24px" }} className="dashboard-two-col">
               <div className="card">
                 <ScoreGauge score={scanResult.score} />

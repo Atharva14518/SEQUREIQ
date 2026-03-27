@@ -1,89 +1,154 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ChevronDown, Copy, Check, RefreshCw } from 'lucide-react'
+import { ChevronDown, Copy, Check, Loader, CheckCircle, AlertCircle } from 'lucide-react'
 import { generateAutoFix, verifyAutoFix, verifyFix } from '../api/secureiq.js'
 
+// autoFixPhase: idle | loading | steps_shown | verifying | fixed | failed
 export default function FindingCard({ finding, scanId, domain, scanResult, onScoreUpdate }) {
   const [expanded, setExpanded] = useState(false)
-  const [copied, setCopied] = useState(false)
-  const [verifying, setVerifying] = useState(false)
-  const [verifyResult, setVerifyResult] = useState(null)
-  const [autoFixPhase, setAutoFixPhase] = useState('idle') // idle | generating | verifying | fixed | failed
+  const [copied, setCopied] = useState(null)
+  const [autoFixPhase, setAutoFixPhase] = useState('idle')
   const [generatedRecord, setGeneratedRecord] = useState(null)
   const [autoFixMessage, setAutoFixMessage] = useState('')
-  const fix = finding.fixes || {}
+  const [pointsGained, setPointsGained] = useState(0)
 
-  const borderColor = { critical: 'var(--red)', warning: 'var(--yellow)', pass: 'var(--green)' }[finding.status] || 'var(--border)'
+  const fix = finding.fixes || {}
+  const borderColor = { critical: 'var(--red)', warning: 'var(--yellow)', pass: 'var(--green)', info: 'var(--blue)' }[finding.status] || 'var(--border)'
   const isDnsFinding = ['SPF Record', 'DMARC Policy', 'DKIM Signing'].some(
     c => String(c).toLowerCase() === String(finding.check).toLowerCase()
   )
+  const isFixable = finding.status !== 'pass' && finding.status !== 'info'
 
-  const copy = (text) => {
+  const copy = (text, key) => {
     navigator.clipboard.writeText(text)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
+    setCopied(key)
+    setTimeout(() => setCopied(null), 2000)
   }
 
-  const handleVerify = async () => {
-    setVerifying(true)
-    try {
-      const res = await verifyFix(scanId, finding.check, domain)
-      setVerifyResult(res)
-    } catch (e) {
-      setVerifyResult({ fixed: false, message: 'Verification failed' })
-    }
-    setVerifying(false)
-  }
+  // Step 1: Load steps — DNS findings use backend, others use fix_generator data
+  const handleShowSteps = async () => {
+    if (!isFixable) return
+    if (autoFixPhase === 'loading' || autoFixPhase === 'verifying') return
 
-  const handleAutoFix = async () => {
-    if (!scanId || !isDnsFinding) return
-    if (autoFixPhase === 'generating' || autoFixPhase === 'verifying') return
-
-    setAutoFixMessage('')
-    setAutoFixPhase('generating')
+    setAutoFixPhase('loading')
     setGeneratedRecord(null)
-    setVerifyResult(null)
+    setAutoFixMessage('')
 
-    try {
-      const hostingProvider = scanResult?.hosting_provider || scanResult?.hostingProvider || 'unknown'
-      const emailProvider = scanResult?.email_provider || scanResult?.emailProvider || 'google'
+    if (isDnsFinding && scanId) {
+      // DNS path — generate record + human steps via backend AI
+      try {
+        const hostingProvider = scanResult?.hosting_provider || scanResult?.hostingProvider || 'unknown'
+        const emailProvider = scanResult?.email_provider || scanResult?.emailProvider || 'google'
+        const record = await generateAutoFix({
+          check_name: finding.check,
+          domain,
+          hosting_provider: hostingProvider,
+          email_provider: emailProvider,
+        })
+        if (record?.error) {
+          setAutoFixPhase('failed')
+          setAutoFixMessage('Could not generate fix steps. Please try again.')
+          return
+        }
+        setGeneratedRecord(record)
+        setAutoFixPhase('steps_shown')
+      } catch (e) {
+        setAutoFixPhase('failed')
+        setAutoFixMessage('Something went wrong generating fix steps.')
+      }
+    } else {
+      // Non-DNS path — use fix_generator steps (already in scan data via `finding.fixes`)
+      const steps = fix.steps || []
+      const humanSteps = steps.length > 0
+        ? steps.map(s => s.instruction + (s.where ? ` (${s.where})` : ''))
+        : [
+            `Log in to your hosting or server control panel.`,
+            `Find the settings section related to "${finding.check}".`,
+            finding.fix_preview || `Apply the recommended fix for this issue.`,
+            `Save the changes and wait a few minutes for them to take effect.`,
+            `Come back to SecureIQ and scan again to verify your score improved.`,
+          ]
 
-      const record = await generateAutoFix({
-        check_name: finding.check,
-        domain,
-        hosting_provider: hostingProvider,
-        email_provider: emailProvider,
+      setGeneratedRecord({
+        human_steps: humanSteps,
+        record_value: fix.exact_value || null,
+        record_type: null,
+        record_name: null,
+        time_estimate: fix.time_estimate || null,
+        is_non_dns: true,
       })
+      setAutoFixPhase('steps_shown')
+    }
+  }
 
-      setGeneratedRecord(record)
-      const expectedValue = record?.record_value || ''
+  // Step 2: User confirms → verify (DNS only)
+  const handleConfirmFixed = async () => {
+    if (!generatedRecord || autoFixPhase === 'verifying') return
+
+    if (generatedRecord.is_non_dns) {
+      // Non-DNS: verify what we can, then refresh scan so score updates live
       setAutoFixPhase('verifying')
+      setAutoFixMessage('')
+      try {
+        if (scanId) {
+          const res = await verifyFix(scanId, finding.check, domain)
+          const fixed = !!res?.fixed
+          if (fixed) {
+            setAutoFixPhase('fixed')
+            setPointsGained(res.points_gained || 0)
+            setAutoFixMessage(res.message || 'Fix verified!')
+          } else {
+            setAutoFixPhase('fixed')
+            setAutoFixMessage(res?.message || 'Changes noted. Refreshing your score…')
+          }
+        } else {
+          setAutoFixPhase('fixed')
+          setAutoFixMessage('Changes noted. Refreshing your score…')
+        }
+      } catch (e) {
+        setAutoFixPhase('fixed')
+        setAutoFixMessage('Changes noted. Refreshing your score…')
+      } finally {
+        onScoreUpdate?.()
+      }
+      return
+    }
 
+    setAutoFixPhase('verifying')
+    setAutoFixMessage('')
+    try {
       const res = await verifyAutoFix({
         domain,
         check_name: finding.check,
-        expected_value: expectedValue,
+        expected_value: generatedRecord?.record_value || '',
         scan_id: scanId,
       })
-
       if (res?.verified) {
         setAutoFixPhase('fixed')
-        setAutoFixMessage(res.message || `Auto-fix verified. +${res.points_gained} pts`)
-        onScoreUpdate?.(res.new_score, res.points_gained)
+        setPointsGained(res.points_gained || 0)
+        setAutoFixMessage(res.message || 'Fix verified!')
+        onScoreUpdate?.()
       } else {
-        setAutoFixPhase('failed')
-        setAutoFixMessage(res?.message || 'Auto-fix not verified yet.')
+        setAutoFixPhase('steps_shown')
+        setAutoFixMessage(res?.message || 'The change wasn\'t detected yet — DNS changes can take up to 60 minutes. Try again shortly.')
       }
     } catch (e) {
-      setAutoFixPhase('failed')
-      setAutoFixMessage(`Auto-fix failed: ${String(e?.message || e)}`)
+      setAutoFixPhase('steps_shown')
+      setAutoFixMessage('Verification failed. Please wait a few minutes and try again.')
     }
+  }
+
+  const resetAutoFix = () => {
+    setAutoFixPhase('idle')
+    setGeneratedRecord(null)
+    setAutoFixMessage('')
+    setPointsGained(0)
   }
 
   return (
     <motion.div
       layout
-      className="rounded-2xl border overflow-hidden transition-all"
+      className="rounded-2xl border overflow-hidden"
       style={{
         borderLeft: `3px solid ${borderColor}`,
         borderTop: '1px solid var(--border)',
@@ -92,19 +157,53 @@ export default function FindingCard({ finding, scanId, domain, scanResult, onSco
         background: 'var(--bg-card)',
       }}
     >
-      <button className="w-full p-4 flex items-center gap-3 text-left" onClick={() => setExpanded(e => !e)}>
-        <span className={`status-${finding.status} flex-shrink-0`}>
-          {finding.status === 'pass' ? '✓' : finding.status === 'warning' ? '⚠' : '✕'} {finding.status}
+      {/* Header row — always visible */}
+      <button
+        className="w-full p-4 flex items-center gap-3 text-left"
+        onClick={() => setExpanded(e => !e)}
+        style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}
+      >
+        <span
+          style={{
+            fontSize: '11px', fontWeight: '700', letterSpacing: '0.1em',
+            textTransform: 'uppercase', flexShrink: 0,
+            color: finding.status === 'pass'
+              ? 'var(--green)'
+              : finding.status === 'warning'
+                ? 'var(--yellow)'
+                : finding.status === 'info'
+                  ? 'var(--blue)'
+                  : 'var(--red)',
+          }}
+        >
+          {finding.status === 'pass'
+            ? '✓'
+            : finding.status === 'warning'
+              ? '⚠'
+              : finding.status === 'info'
+                ? 'ℹ'
+                : '✕'} {finding.status}
         </span>
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold truncate" style={{ color: 'var(--text-1)' }}>{finding.check}</p>
-          <p className="text-xs truncate mt-0.5" style={{ color: 'var(--text-2)' }}>
+          <p style={{ color: '#EBDCC4', fontSize: '13px', fontWeight: '600', marginBottom: 2 }}>
+            {finding.check}
+          </p>
+          <p style={{ color: '#B6A596', fontSize: '12px' }} className="truncate">
             {finding.explanation || finding.detail}
           </p>
         </div>
-        <ChevronDown size={16} style={{ color: 'var(--text-2)', transform: expanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
+        <ChevronDown
+          size={16}
+          style={{
+            color: '#B6A596',
+            transform: expanded ? 'rotate(180deg)' : 'none',
+            transition: 'transform 0.2s',
+            flexShrink: 0,
+          }}
+        />
       </button>
 
+      {/* Expanded body */}
       <AnimatePresence>
         {expanded && (
           <motion.div
@@ -112,159 +211,224 @@ export default function FindingCard({ finding, scanId, domain, scanResult, onSco
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
             transition={{ duration: 0.25 }}
-            className="overflow-hidden"
+            style={{ overflow: 'hidden' }}
           >
-            <div className="px-4 pb-4 space-y-4 border-t" style={{ borderColor: 'var(--border)' }}>
-              <div className="pt-4">
-                <p className="text-sm" style={{ color: 'var(--text-2)', lineHeight: 1.6 }}>{finding.explanation || finding.detail}</p>
+            <div style={{ padding: '0 16px 16px', borderTop: '1px solid var(--border)' }}>
+
+              {/* Plain-English Explanation */}
+              <div style={{ paddingTop: 16 }}>
+                <p style={{ color: '#B6A596', fontSize: '13px', lineHeight: 1.7 }}>
+                  {finding.explanation || finding.detail}
+                </p>
                 {finding.india_context && (
-                  <div className="mt-3 p-3 rounded-xl" style={{ background: 'rgba(210,153,34,0.08)', border: '1px solid rgba(210,153,34,0.2)' }}>
-                    <p className="text-xs" style={{ color: 'var(--yellow)' }}>🇮🇳 India-specific risk: {finding.india_context}</p>
+                  <div style={{ marginTop: 12, padding: '10px 14px', borderRadius: 10, background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)' }}>
+                    <p style={{ color: 'var(--yellow)', fontSize: '12px' }}>🇮🇳 {finding.india_context}</p>
                   </div>
                 )}
               </div>
 
+              {/* What needs to be done */}
               {finding.fix_preview && finding.status !== 'pass' && (
-                <div className="p-3 rounded-xl" style={{ background: 'var(--bg-card-2)', border: '1px solid var(--border)' }}>
-                  <p className="text-xs font-semibold mb-1" style={{ color: 'var(--blue)' }}>🔧 Fix Preview</p>
-                  <p className="text-xs italic" style={{ color: 'var(--text-2)' }}>{finding.fix_preview}</p>
+                <div style={{ marginTop: 12, padding: '10px 14px', borderRadius: 10, background: 'rgba(96,165,250,0.06)', border: '1px solid rgba(96,165,250,0.15)' }}>
+                  <p style={{ color: 'var(--blue)', fontSize: '11px', fontWeight: '700', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                    🔧 What needs to be done
+                  </p>
+                  <p style={{ color: '#B6A596', fontSize: '12px' }}>{finding.fix_preview}</p>
                 </div>
               )}
 
-              {fix.exact_value && (
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <p className="text-xs font-semibold" style={{ color: 'var(--text-2)' }}>Exact value to use:</p>
-                    <button onClick={() => copy(fix.exact_value)} className="flex items-center gap-1 text-xs" style={{ color: 'var(--blue)' }}>
-                      {copied ? <Check size={12} /> : <Copy size={12} />}
-                      {copied ? 'Copied!' : 'Copy'}
-                    </button>
-                  </div>
-                  <div className="p-3 rounded-xl font-mono text-xs overflow-x-auto" style={{ background: '#0D1117', color: 'var(--green)', border: '1px solid var(--border)' }}>
-                    {fix.exact_value}
-                  </div>
-                </div>
-              )}
+              {/* ====== AUTO-FIX SECTION ====== */}
+              {isFixable && (
+                <div style={{ marginTop: 16 }}>
 
-              {isDnsFinding && (
-                <div className="mt-2">
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-xs font-semibold" style={{ color: 'var(--text-2)' }}>AUTO-FIX —</p>
+                  {/* FIXED */}
+                  {autoFixPhase === 'fixed' && (
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.97 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      style={{ padding: '16px', borderRadius: 12, textAlign: 'center', background: 'rgba(74,222,128,0.08)', border: '1px solid rgba(74,222,128,0.25)' }}
+                    >
+                      <CheckCircle size={28} style={{ color: 'var(--green)', margin: '0 auto 8px' }} />
+                      <p style={{ color: 'var(--green)', fontSize: '14px', fontWeight: '700' }}>
+                        {generatedRecord?.is_non_dns ? 'Steps Completed! 🎉' : 'Fix Verified! 🎉'}
+                      </p>
+                      {pointsGained > 0 && (
+                        <p style={{ color: '#B6A596', fontSize: '12px', marginTop: 4 }}>+{pointsGained} points added to your score</p>
+                      )}
+                      {autoFixMessage && (
+                        <p style={{ color: '#B6A596', fontSize: '12px', marginTop: 6 }}>{autoFixMessage}</p>
+                      )}
+                      <button onClick={resetAutoFix} style={{ color: 'var(--text-2)', fontSize: '11px', marginTop: 12, background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>
+                        Show steps again
+                      </button>
+                    </motion.div>
+                  )}
+
+                  {/* IDLE — Show the button */}
+                  {autoFixPhase === 'idle' && (
                     <button
-                      onClick={handleAutoFix}
-                      disabled={autoFixPhase === 'generating' || autoFixPhase === 'verifying'}
-                      className="btn-ghost text-xs px-4 py-2"
+                      onClick={handleShowSteps}
                       style={{
-                        cursor: autoFixPhase === 'generating' || autoFixPhase === 'verifying' ? 'not-allowed' : 'pointer',
-                        border: '1px solid var(--border)',
-                        color: autoFixPhase === 'fixed' ? 'var(--green)' : 'var(--blue)',
-                        background: 'transparent',
-                        whiteSpace: 'nowrap',
+                        display: 'flex', alignItems: 'center', gap: 8,
+                        fontSize: '12px', fontWeight: '700', letterSpacing: '0.05em',
+                        padding: '10px 16px', borderRadius: 8, cursor: 'pointer',
+                        background: 'rgba(96,165,250,0.1)', border: '1px solid rgba(96,165,250,0.25)',
+                        color: 'var(--blue)',
                       }}
                     >
-                      {autoFixPhase === 'generating'
-                        ? 'GENERATING…'
-                        : autoFixPhase === 'verifying'
-                          ? 'VERIFYING…'
-                          : autoFixPhase === 'fixed'
-                            ? 'FIXED —'
-                            : autoFixPhase === 'failed'
-                              ? 'TRY AGAIN —'
-                              : 'AUTO-FIX —'}
+                      🔧 Show me how to fix this
                     </button>
-                  </div>
+                  )}
 
-                  {generatedRecord && (
-                    <div className="p-3 rounded-xl" style={{ background: 'var(--bg-card-2)', border: '1px solid var(--border)', marginTop: 10 }}>
-                      <p className="text-xs font-semibold" style={{ color: 'var(--text-2)' }}>Suggested record</p>
-                      <div className="mt-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                        <div>
-                          <p className="label-sm" style={{ color: 'var(--text-3)' }}>TYPE</p>
-                          <p className="label-sm" style={{ color: 'var(--text-2)' }}>{generatedRecord.record_type || 'TXT'}</p>
-                        </div>
-                        <div>
-                          <p className="label-sm" style={{ color: 'var(--text-3)' }}>TTL</p>
-                          <p className="label-sm" style={{ color: 'var(--text-2)' }}>{generatedRecord.ttl ?? '-'}</p>
-                        </div>
-                      </div>
-                      <div className="mt-2">
-                        <p className="label-sm" style={{ color: 'var(--text-3)' }}>NAME</p>
-                        <p className="label-sm" style={{ color: 'var(--text-2)' }}>{generatedRecord.record_name || '@ / _dmarc / default._domainkey'}</p>
-                      </div>
-                      {generatedRecord.record_value && (
-                        <div style={{ marginTop: 10 }}>
-                          <div className="flex items-center justify-between">
-                            <p className="text-xs font-semibold" style={{ color: 'var(--text-2)' }}>VALUE</p>
-                            <button onClick={() => copy(generatedRecord.record_value)} className="flex items-center gap-1 text-xs" style={{ color: 'var(--blue)' }}>
-                              {copied ? <Check size={12} /> : <Copy size={12} />}
-                              {copied ? 'Copied!' : 'Copy'}
-                            </button>
-                          </div>
-                          <div className="p-3 rounded-xl font-mono text-xs overflow-x-auto" style={{ background: '#0D1117', color: 'var(--green)', border: '1px solid var(--border)', marginTop: 8 }}>
-                            {generatedRecord.record_value}
-                          </div>
-                        </div>
-                      )}
-                      {generatedRecord.verification_command && (
-                        <div style={{ marginTop: 10 }}>
-                          <p className="text-xs font-semibold" style={{ color: 'var(--text-2)' }}>Verification command</p>
-                          <code className="block mt-2 p-3 rounded-xl font-mono text-xs overflow-x-auto" style={{ background: '#0D0D0D', border: '1px solid var(--border)', color: 'var(--text-2)' }}>
-                            {generatedRecord.verification_command}
-                          </code>
-                        </div>
-                      )}
-                      {generatedRecord.time_estimate && (
-                        <p className="text-xs" style={{ color: 'var(--text-2)', marginTop: 8 }}>
-                          Time estimate: {generatedRecord.time_estimate}
-                        </p>
-                      )}
+                  {/* LOADING */}
+                  {autoFixPhase === 'loading' && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#B6A596', fontSize: '12px' }}>
+                      <Loader size={14} style={{ animation: 'spin 1s linear infinite' }} />
+                      Generating fix steps…
                     </div>
                   )}
 
-                  {autoFixMessage && (
-                    <p className="text-xs" style={{ color: autoFixPhase === 'fixed' ? 'var(--green)' : 'var(--yellow)', marginTop: 8 }}>
-                      {autoFixMessage}
-                    </p>
-                  )}
-                </div>
-              )}
+                  {/* STEPS_SHOWN / VERIFYING */}
+                  {(autoFixPhase === 'steps_shown' || autoFixPhase === 'verifying') && generatedRecord && (
+                    <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} style={{ display: 'grid', gap: 14 }}>
 
-              {fix.steps?.length > 0 && (
-                <div>
-                  <p className="text-xs font-semibold mb-2" style={{ color: 'var(--text-2)' }}>Steps to fix:</p>
-                  <ol className="space-y-2">
-                    {fix.steps.map((s, i) => (
-                      <li key={i} className="flex gap-3 text-xs" style={{ color: 'var(--text-2)' }}>
-                        <span className="w-5 h-5 rounded-full flex-shrink-0 flex items-center justify-center text-xs font-bold"
-                          style={{ background: 'var(--bg-card-2)', color: 'var(--blue)' }}>{i + 1}</span>
-                        <div>
-                          <span style={{ color: 'var(--text-1)' }}>{s.instruction}</span>
-                          {s.where && <span style={{ color: 'var(--text-2)' }}> — {s.where}</span>}
+                      {/* Header */}
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <p style={{ color: 'var(--blue)', fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+                          📋 Steps to fix this
+                        </p>
+                        <button onClick={resetAutoFix} style={{ color: 'var(--text-2)', fontSize: '11px', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>
+                          Cancel
+                        </button>
+                      </div>
+
+                      {/* Numbered plain-English steps */}
+                      {generatedRecord.human_steps?.length > 0 && (
+                        <ol style={{ display: 'grid', gap: 10, listStyle: 'none', padding: 0, margin: 0 }}>
+                          {generatedRecord.human_steps.map((step, i) => (
+                            <li key={i} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                              <span style={{
+                                flexShrink: 0, width: 24, height: 24, borderRadius: '50%', display: 'flex',
+                                alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: '700',
+                                background: 'rgba(96,165,250,0.15)', color: 'var(--blue)',
+                              }}>
+                                {i + 1}
+                              </span>
+                              <span style={{ color: '#EBDCC4', fontSize: '13px', lineHeight: 1.6 }}>{step}</span>
+                            </li>
+                          ))}
+                        </ol>
+                      )}
+
+                      {/* DNS record value to copy (DNS findings only) */}
+                      {!generatedRecord.is_non_dns && generatedRecord.record_value && (
+                        <div style={{ padding: 14, borderRadius: 10, background: 'var(--bg-card-2)', border: '1px solid var(--border)' }}>
+                          <p style={{ color: '#B6A596', fontSize: '11px', fontWeight: '700', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                            📄 The exact value to paste into your DNS panel:
+                          </p>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+                            <div>
+                              <p style={{ color: 'var(--text-2)', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 3 }}>Type</p>
+                              <p style={{ color: '#EBDCC4', fontSize: '12px', fontWeight: '600' }}>{generatedRecord.record_type || 'TXT'}</p>
+                            </div>
+                            <div>
+                              <p style={{ color: 'var(--text-2)', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 3 }}>Name / Host</p>
+                              <p style={{ color: '#EBDCC4', fontSize: '12px', fontWeight: '600' }}>{generatedRecord.record_name || '@'}</p>
+                            </div>
+                          </div>
+                          <div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                              <p style={{ color: 'var(--text-2)', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Value (copy this)</p>
+                              <button
+                                onClick={() => copy(generatedRecord.record_value, 'record')}
+                                style={{ display: 'flex', alignItems: 'center', gap: 4, color: 'var(--blue)', fontSize: '11px', background: 'none', border: 'none', cursor: 'pointer' }}
+                              >
+                                {copied === 'record' ? <Check size={11} /> : <Copy size={11} />}
+                                {copied === 'record' ? 'Copied!' : 'Copy'}
+                              </button>
+                            </div>
+                            <div style={{ padding: '10px 12px', borderRadius: 8, background: '#0D1117', border: '1px solid var(--border)', fontFamily: 'monospace', fontSize: '12px', color: 'var(--green)', overflowX: 'auto' }}>
+                              {generatedRecord.record_value}
+                            </div>
+                          </div>
+                          {generatedRecord.time_estimate && (
+                            <p style={{ color: '#B6A596', fontSize: '11px', marginTop: 10 }}>
+                              ⏱ Time needed: {generatedRecord.time_estimate}
+                            </p>
+                          )}
                         </div>
-                      </li>
-                    ))}
-                  </ol>
-                </div>
-              )}
+                      )}
 
-              {finding.status !== 'pass' && scanId && (
-                <div className="flex items-center gap-3">
-                  <button onClick={handleVerify} disabled={verifying}
-                    className="btn-ghost text-xs px-4 py-2 flex items-center gap-2">
-                    <RefreshCw size={12} className={verifying ? 'animate-spin' : ''} />
-                    {verifying ? 'Verifying…' : 'VIEW FIX —'}
-                  </button>
-                  {verifyResult && (
-                    <span className={verifyResult.fixed ? 'pill-green' : 'pill-yellow'}>
-                      {verifyResult.fixed ? `✓ Fixed! +${verifyResult.points_gained} pts` : verifyResult.message}
-                    </span>
+                      {/* Non-DNS exact value */}
+                      {generatedRecord.is_non_dns && generatedRecord.record_value && (
+                        <div style={{ padding: 12, borderRadius: 10, background: '#0D1117', border: '1px solid var(--border)' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                            <p style={{ color: '#B6A596', fontSize: '11px', fontWeight: '700' }}>Exact value to use:</p>
+                            <button onClick={() => copy(generatedRecord.record_value, 'exact')} style={{ display: 'flex', alignItems: 'center', gap: 4, color: 'var(--blue)', fontSize: '11px', background: 'none', border: 'none', cursor: 'pointer' }}>
+                              {copied === 'exact' ? <Check size={11} /> : <Copy size={11} />}
+                              {copied === 'exact' ? 'Copied!' : 'Copy'}
+                            </button>
+                          </div>
+                          <code style={{ color: 'var(--green)', fontFamily: 'monospace', fontSize: '11px', display: 'block', overflowX: 'auto' }}>
+                            {generatedRecord.record_value}
+                          </code>
+                        </div>
+                      )}
+
+                      {/* Feedback message */}
+                      {autoFixMessage && (
+                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '10px 14px', borderRadius: 10, background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)' }}>
+                          <AlertCircle size={14} style={{ color: 'var(--yellow)', flexShrink: 0, marginTop: 2 }} />
+                          <p style={{ color: 'var(--yellow)', fontSize: '12px', lineHeight: 1.6 }}>{autoFixMessage}</p>
+                        </div>
+                      )}
+
+                      {/* Confirm button */}
+                      <button
+                        onClick={handleConfirmFixed}
+                        disabled={autoFixPhase === 'verifying'}
+                        style={{
+                          width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          gap: 8, padding: '14px 16px', borderRadius: 10, fontSize: '13px', fontWeight: '700',
+                          background: autoFixPhase === 'verifying' ? 'rgba(74,222,128,0.06)' : 'rgba(74,222,128,0.12)',
+                          border: '1px solid rgba(74,222,128,0.3)', color: 'var(--green)',
+                          cursor: autoFixPhase === 'verifying' ? 'not-allowed' : 'pointer',
+                          transition: 'all 0.2s',
+                        }}
+                      >
+                        {autoFixPhase === 'verifying' ? (
+                          <>
+                            <Loader size={15} style={{ animation: 'spin 1s linear infinite' }} />
+                            Checking… this may take a moment
+                          </>
+                        ) : (
+                          <>✅ I've Made These Changes — Update My Score</>
+                        )}
+                      </button>
+                    </motion.div>
+                  )}
+
+                  {/* FAILED */}
+                  {autoFixPhase === 'failed' && (
+                    <div style={{ display: 'grid', gap: 8 }}>
+                      {autoFixMessage && <p style={{ color: 'var(--yellow)', fontSize: '12px' }}>{autoFixMessage}</p>}
+                      <button
+                        onClick={handleShowSteps}
+                        style={{ alignSelf: 'start', padding: '8px 14px', borderRadius: 8, border: '1px solid var(--border)', color: 'var(--blue)', background: 'transparent', fontSize: '12px', cursor: 'pointer' }}
+                      >
+                        Try again
+                      </button>
+                    </div>
                   )}
                 </div>
               )}
+
             </div>
           </motion.div>
         )}
       </AnimatePresence>
+
+      <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
     </motion.div>
   )
 }

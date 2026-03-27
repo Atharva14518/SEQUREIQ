@@ -15,6 +15,11 @@
   --border: #66473b;
   --divider: #35211a;
   --text-dark: #35211a;
+  /* Status / semantic colors */
+  --red: #ef4444;
+  --yellow: #f59e0b;
+  --green: #4ade80;
+  --blue: #60a5fa;
 }
 
 * {

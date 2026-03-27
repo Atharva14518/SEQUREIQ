@@ -87,6 +87,7 @@ async def generate_auto_fix(req: GenerateAutoFixRequest):
 
     client = Groq(api_key=api_key)
 
+    # --- Part 1: Generate the technical DNS record ---
     system_prompt = (
         "You are SecureIQ DNS Auto-fix generator for Indian small businesses. "
         "Generate the exact DNS record update that would fix the provided security check. "
@@ -127,11 +128,71 @@ Return the best record update as exact strings that an operator can paste into t
         )
         content = response.choices[0].message.content or ""
         parsed = _first_json_object_or_array(content)
-        if isinstance(parsed, dict):
-            return parsed
-        return {"error": "Model did not return a JSON object"}
+        if not isinstance(parsed, dict):
+            return {"error": "Model did not return a JSON object"}
     except Exception as e:
         return {"error": f"Failed to generate DNS record: {str(e)}"}
+
+    # --- Part 2: Generate plain-English human steps ---
+    steps_system = (
+        "You are a friendly tech support helper explaining things to a small business owner "
+        "who has no technical background. Write step-by-step instructions in very simple language. "
+        "Respond ONLY with a raw valid JSON array of strings. No markdown, no backticks."
+    )
+
+    record_value = parsed.get("record_value", "")
+    record_name = parsed.get("record_name", "@")
+    record_type = parsed.get("record_type", "TXT")
+
+    steps_prompt = f"""
+A small business owner needs to fix this security issue on their website: {check_name}
+Domain: {domain}
+Hosting provider: {req.hosting_provider or "unknown (likely GoDaddy, Hostinger, or BigRock)"}
+
+The fix requires adding this DNS record:
+- Type: {record_type}
+- Name/Host: {record_name}
+- Value: {record_value}
+
+Write 4-6 plain-English steps telling them exactly how to do this.
+Use simple words — imagine they have never logged into their hosting account before.
+Mention common Indian hosting providers like GoDaddy, Hostinger, BigRock, Bluehost by name where relevant.
+Each step should be a single clear sentence starting with an action word like "Log in", "Click", "Find", "Paste", "Save".
+
+Return a JSON array of step strings, e.g.:
+["Log in to your hosting account at GoDaddy or Hostinger.", "Click on 'Domains' or 'DNS Settings'.", ...]
+"""
+
+    try:
+        steps_response = client.chat.completions.create(
+            model=groq_model,
+            messages=[
+                {"role": "system", "content": steps_system},
+                {"role": "user", "content": steps_prompt},
+            ],
+            temperature=0.2,
+            max_tokens=600,
+        )
+        steps_content = steps_response.choices[0].message.content or ""
+        steps_parsed = _first_json_object_or_array(steps_content)
+        human_steps = steps_parsed if isinstance(steps_parsed, list) else _default_human_steps(check_name, record_name, record_value)
+    except Exception:
+        human_steps = _default_human_steps(check_name, record_name, record_value)
+
+    parsed["human_steps"] = human_steps
+    return parsed
+
+
+def _default_human_steps(check_name: str, record_name: str, record_value: str) -> list:
+    return [
+        "Log in to your domain registrar or hosting provider (e.g. GoDaddy, Namecheap, Hostinger, BigRock).",
+        "Look for 'DNS Management', 'DNS Settings', or 'Advanced DNS' in your account dashboard.",
+        f"Click 'Add Record' and select the record type TXT.",
+        f"In the 'Name' or 'Host' field, type: {record_name}",
+        f"In the 'Value' or 'Content' field, paste: {record_value}",
+        "Save the record. DNS changes take 15–60 minutes to take effect worldwide.",
+        "Come back to SecureIQ and click 'I've Made These Changes' to verify and update your score.",
+    ]
 
 
 @router.post("/autofix/verify-applied")

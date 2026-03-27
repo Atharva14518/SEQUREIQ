@@ -2,7 +2,7 @@ export default function ScoreGauge({ score }) {
   const color = score < 40 ? '#DC9F85' : score < 70 ? '#B6A596' : '#EBDCC4'
   return (
     <div className="w-full">
-      <p className="label-sm mb-3" style={{ color: '#35211A' }}>SECURITY SCORE</p>
+      <p className="label-sm mb-3" style={{ color: 'var(--text-2)' }}>SECURITY SCORE</p>
       <p className="display-lg leading-none" style={{ color }}>{score}</p>
       <div className="mt-4 h-px w-full" style={{ background: '#35211A' }}>
         <div
@@ -14,7 +14,7 @@ export default function ScoreGauge({ score }) {
           }}
         />
       </div>
-      <p className="label-sm text-right mt-2" style={{ color: '#35211A' }}>/ 100</p>
+      <p className="label-sm text-right mt-2" style={{ color: 'var(--text-2)' }}>/ 100</p>
     </div>
   )
 }

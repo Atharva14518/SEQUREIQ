@@ -8,10 +8,10 @@ pyOpenSSL==24.1.0
 cryptography==42.0.5
 requests==2.31.0
 reportlab==4.1.0
-sqlalchemy==2.0.29
+sqlalchemy==2.0.48
 aiosqlite==0.20.0
 python-multipart==0.0.9
 groq==0.9.0
 qrcode[pil]==7.4.2
-Pillow==10.3.0
+Pillow==12.1.1
 openai==1.30.0

@@ -10,19 +10,19 @@ SECURITY_HEADERS = {
         "score_impact": 4,
     },
     "X-Frame-Options": {
-        "name": "Clickjacking Protection",
+        "name": "X-Frame-Options",
         "desc": "X-Frame-Options missing — your site can be embedded in iframes for clickjacking attacks",
         "ok_desc": "Clickjacking protection active",
         "score_impact": 4,
     },
     "X-Content-Type-Options": {
-        "name": "MIME Sniffing Protection",
+        "name": "X-Content-Type-Options",
         "desc": "X-Content-Type-Options missing — browsers may misinterpret file types",
         "ok_desc": "MIME sniffing protection enabled",
         "score_impact": 4,
     },
     "Content-Security-Policy": {
-        "name": "Content Security Policy",
+        "name": "CSP",
         "desc": "CSP missing — cross-site scripting (XSS) attacks not blocked at browser level",
         "ok_desc": "Content Security Policy configured",
         "score_impact": 4,

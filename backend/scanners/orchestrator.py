@@ -7,6 +7,9 @@ from scanners.port_scanner import check_ports
 from scanners.headers_checker import check_headers
 from scanners.subdomain_finder import check_subdomains
 from scanners.darkweb_checker import check_darkweb
+from scanners.mfa_checker import check_mfa
+from scanners.dns_checker import check_dns_health
+from scanners.cve_checker import check_cve_exposure
 from utils.dns_resolver import resolve_ns
 
 
@@ -89,9 +92,20 @@ async def run_full_scan(domain: str, clerk_user_id: str = None) -> dict:
     headers_task = check_headers(domain)
     subdomains_task = check_subdomains(domain)
     darkweb_task = check_darkweb(domain)
+    mfa_task = check_mfa(domain)
+    dns_task = check_dns_health(domain)
+    cve_task = check_cve_exposure(domain)
 
     results = await asyncio.gather(
-        ssl_task, email_task, ports_task, headers_task, subdomains_task, darkweb_task,
+        ssl_task,
+        email_task,
+        ports_task,
+        headers_task,
+        subdomains_task,
+        darkweb_task,
+        mfa_task,
+        dns_task,
+        cve_task,
         return_exceptions=True
     )
 

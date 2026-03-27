@@ -106,7 +106,7 @@ export default function LivingSecurityScore({ scanResult }) {
     return clamp(Math.round(base + freshnessBoost), 30, 92)
   }, [history, lastScannedAt, living?.daysSinceLastScan])
 
-  const livingColor = living?.livingScore >= 75 ? '#66473B' : living?.livingScore >= 55 ? '#B6A596' : '#DC9F85'
+  const livingColor = living?.livingScore >= 75 ? 'var(--green)' : living?.livingScore >= 55 ? '#B6A596' : '#DC9F85'
 
   const chartData = useMemo(() => {
     if (!history?.length) return []
@@ -135,7 +135,7 @@ export default function LivingSecurityScore({ scanResult }) {
           <div className="card" style={{ borderColor: livingColor }}>
             <div className="flex items-start justify-between gap-6">
               <div>
-                <p className="label-sm" style={{ color: '#35211A' }}>ADJUSTED (LIVING) SCORE</p>
+                <p className="label-sm" style={{ color: 'var(--text-2)' }}>ADJUSTED (LIVING) SCORE</p>
                 <p className="display-lg" style={{ color: livingColor }}>
                   {living.livingScore}
                 </p>
@@ -149,17 +149,17 @@ export default function LivingSecurityScore({ scanResult }) {
                 <div className="h-px" style={{ background: '#35211A', height: 2 }}>
                   <div style={{ width: `${confidencePercent}%`, height: 2, background: '#DC9F85' }} />
                 </div>
-                <p className="label-sm text-right mt-2" style={{ color: '#35211A' }}>
+                <p className="label-sm text-right mt-2" style={{ color: 'var(--text-2)' }}>
                   {confidencePercent}% confidence
                 </p>
                 <div className="mt-4 space-y-1">
-                  <p className="label-sm" style={{ color: '#35211A' }}>
+                  <p className="label-sm" style={{ color: 'var(--text-2)' }}>
                     Critical weight: {criticalCount}
                   </p>
-                  <p className="label-sm" style={{ color: '#35211A' }}>
+                  <p className="label-sm" style={{ color: 'var(--text-2)' }}>
                     Warning weight: {warningCount}
                   </p>
-                  <p className="label-sm" style={{ color: '#35211A' }}>
+                  <p className="label-sm" style={{ color: 'var(--text-2)' }}>
                     Drift/day: {living.driftPerDay}
                   </p>
                 </div>

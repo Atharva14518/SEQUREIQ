@@ -4,7 +4,7 @@ import { predictThreat } from '../api/secureiq.js'
 function threatColor(threatScore) {
   if (threatScore >= 75) return '#DC9F85'
   if (threatScore >= 45) return '#B6A596'
-  return '#66473B'
+  return '#DC9F85'
 }
 
 export default function PredictiveThreat({ scanResult, userProfile }) {
@@ -65,7 +65,7 @@ export default function PredictiveThreat({ scanResult, userProfile }) {
           <div className="card" style={{ borderColor: prediction.threat_probability >= 75 ? '#DC9F85' : '#35211A' }}>
             <div className="flex items-start justify-between gap-6">
               <div>
-                <p className="label-sm" style={{ color: '#35211A' }}>PREDICTED THREAT SCORE</p>
+                <p className="label-sm" style={{ color: 'var(--text-2)' }}>PREDICTED THREAT SCORE</p>
                 <p className="display-lg" style={{ color: threatColor(prediction.threat_probability) }}>
                   {prediction.threat_probability}
                 </p>
@@ -83,7 +83,7 @@ export default function PredictiveThreat({ scanResult, userProfile }) {
                     }}
                   />
                 </div>
-                <p className="label-sm text-right mt-2" style={{ color: '#35211A' }}>Likely attack window: {prediction.days_until_likely_attack || 30} days</p>
+                <p className="label-sm text-right mt-2" style={{ color: 'var(--text-2)' }}>Likely attack window: {prediction.days_until_likely_attack || 30} days</p>
               </div>
             </div>
           </div>
@@ -108,7 +108,7 @@ export default function PredictiveThreat({ scanResult, userProfile }) {
                       </p>
                     </div>
                     <p className="label-sm mt-1" style={{ color: '#B6A596' }}>{campaign.method}</p>
-                    <p className="label-sm mt-1" style={{ color: '#66473B' }}>{campaign.relevance}</p>
+                    <p className="label-sm mt-1" style={{ color: 'var(--text-2)' }}>{campaign.relevance}</p>
                   </div>
                 ))}
               </div>
